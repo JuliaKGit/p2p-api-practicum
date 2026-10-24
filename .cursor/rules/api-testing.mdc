@@ -1,0 +1,125 @@
+---
+description: How we test the P2P API — the docs are the oracle, black-box only, own data per test, positive/negative/error per endpoint, schema checks, one tag, evidence labels.
+globs: tests/**
+alwaysApply: false
+---
+
+# P2P API testing
+
+## 1. Oracle
+
+`docs/API.md` and `/openapi.json` define correct behavior. If the running API differs, keep the documented expectation and let the test fail — report the defect; never weaken or rewrite the assertion to match the API. Behavior neither document covers belongs in `docs/QUESTIONS.md` as assumed until a human answers; do not assert it yet.
+
+```typescript
+// ✅ GOOD — docs say inactive vendor → 400 inactive_vendor_gate
+const res = await request.post('/purchase-orders', {
+  data: { vendor_id: 'vnd-002', line_items: [{ sku: 'LUM-2X4-8', quantity: 10, unit_price: 4.75 }] },
+});
+expect(res.status()).toBe(400);
+expect((await res.json()).rule).toBe('inactive_vendor_gate');
+
+// ❌ BAD — API returned 201, so the test “passes” with wrong expectations
+expect([201, 400]).toContain(res.status());
+```
+
+## 2. Black box
+
+Tests call HTTP only. Never import, read, or change anything under `src/`.
+
+```typescript
+// ✅ GOOD
+const res = await request.get('/vendors');
+
+// ❌ BAD
+import { store } from '../../src/store';
+```
+
+## 3. Requests
+
+Use Playwright’s `request` fixture with path-only URLs; host and port come from `baseURL` in `playwright.config.ts` (`API_BASE_URL`).
+
+```typescript
+// ✅ GOOD
+await request.get('/health');
+
+// ❌ BAD
+await request.get('http://localhost:8000/vendors');
+```
+
+## 4. Data
+
+Each test creates what it needs: own vendor for exposure checks, unique `invoice_number` values (e.g. `` `INV-${Date.now()}` ``). Never call `POST /admin/reset` inside a test — only `tests/api/reset.setup.ts` does that before the run. Do not rely on another test’s records except steps in one serial `@e2e` flow.
+
+```typescript
+// ✅ GOOD
+const vendor = await request.post('/vendors', { data: { name: `QA ${Date.now()}` } });
+const invoiceNumber = `INV-${Date.now()}`;
+
+// ❌ BAD — assumes seed PO from a prior test file
+await request.post('/invoices', { data: { po_id: 'po-from-other-spec', invoice_number: 'INV-1', line_items: [...] } });
+```
+
+## 5. Per endpoint
+
+Cover each endpoint with three cases: **positive** (happy path), **negative** (one invalid input or one rule violation at a time → 400 with `validation_error` or the named rule), **error** (unknown id → 404).
+
+```typescript
+// ✅ GOOD — POST /vendors: 201, empty name → 400 validation_error, GET exposure unknown → 404
+
+// ❌ BAD — only GET /vendors 200, no POST negative or exposure 404
+```
+
+## 6. Assertions
+
+Assert status; on every 400 assert the exact `rule` (wrong rule = fail). Assert values that matter (`open_ap_liability`, `ordered_value`, `partial_receipt`), not merely that a key exists. Validate response shape with `expectSchema` against OpenAPI component schemas (P48).
+
+```typescript
+// ✅ GOOD
+expect(body.rule).toBe('receive_quantity_limit');
+expect(body.open_ap_liability).toBe(95.1);
+await expectSchema(body, 'VendorExposure');
+
+// ❌ BAD
+expect(body).toHaveProperty('rule');
+expect(res.status()).toBe(400); // no rule check
+```
+
+## 7. Tags
+
+Exactly one tag per test: `{ tag: '@api' }` for a single endpoint, `{ tag: '@e2e' }` for a multi-step flow. Put the tag on `test()`, never on `describe()`.
+
+```typescript
+// ✅ GOOD
+test('POST /purchase-orders rejects inactive vendor', { tag: '@api' }, async ({ request }) => { ... });
+
+// ❌ BAD
+test.describe('vendors', { tag: '@api' }, () => { ... });
+```
+
+## 8. Known bugs
+
+A test for a confirmed bug keeps full assertions and uses `test.fail(true, 'BUG-<n>: <one line>')`. Never delete the test or loosen expectations.
+
+```typescript
+// ✅ GOOD
+test('duplicate invoice detection is case-insensitive', { tag: '@api' }, async ({ request }) => {
+  test.fail(true, 'BUG-3: second INV-7 accepted with 201');
+  // ... full documented expectations ...
+});
+
+// ❌ BAD — bug “fixed” in the test by expecting 201
+expect(second.status()).toBe(201);
+```
+
+## 9. Evidence
+
+Label every behavioral claim in comments, reports, or `docs/QUESTIONS.md`: **executed** (this run proved it), **inspected only** (read from docs/OpenAPI, not exercised), or **not yet tested**.
+
+```markdown
+<!-- ✅ GOOD -->
+- inactive_vendor_gate on vnd-002 → 400 — executed
+- Empty PO line_items rejected — not yet tested
+
+<!-- ❌ BAD -->
+- All 11 rules are covered (no label, no proof)
+```
