@@ -1,0 +1,7 @@
+{
+  "vendor_id": "vnd-e9d8b9f9",
+  "line_items": [
+    { "sku": "LUM-2X4-8", "description": "2x4 stud, 8 ft", "quantity": 10, "unit_price": 4.75 },
+    { "sku": "PLY-12-4X8", "description": "Plywood sheet", "quantity": 2, "unit_price": 22.4 }
+  ]
+}

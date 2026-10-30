@@ -1,0 +1,8 @@
+{
+  "po_id": "po-e14b29cf",
+  "invoice_number": "INV-EXPLORER-1730306200",
+  "line_items": [
+    { "sku": "LUM-2X4-8", "quantity": 10, "unit_price": 4.75 },
+    { "sku": "PLY-12-4X8", "quantity": 2, "unit_price": 22.4 }
+  ]
+}

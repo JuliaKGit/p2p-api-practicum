@@ -1,0 +1,470 @@
+{
+  "happy_path": {
+    "status": "FAIL",
+    "steps": [
+      {
+        "step": 1,
+        "method": "GET",
+        "path": "/health",
+        "status": 200,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 2,
+        "method": "POST",
+        "path": "/admin/reset",
+        "status": 200,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 3,
+        "method": "GET",
+        "path": "/openapi.json",
+        "status": 200,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 4,
+        "method": "GET",
+        "path": "/vendors",
+        "status": 200,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 5,
+        "method": "GET",
+        "path": "/skus",
+        "status": 200,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 6,
+        "method": "POST",
+        "path": "/vendors",
+        "status": 400,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 7,
+        "method": "POST",
+        "path": "/vendors",
+        "status": 201,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 8,
+        "method": "POST",
+        "path": "/purchase-orders",
+        "status": 201,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 9,
+        "method": "POST",
+        "path": "/purchase-orders/po-e14b29cf/submit",
+        "status": 200,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 10,
+        "method": "POST",
+        "path": "/purchase-orders/po-e14b29cf/receive",
+        "status": 200,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 11,
+        "method": "GET",
+        "path": "/purchase-orders/po-e14b29cf",
+        "status": 200,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 12,
+        "method": "POST",
+        "path": "/invoices",
+        "status": 201,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 13,
+        "method": "GET",
+        "path": "/invoices/inv-ae5a2569",
+        "status": 200,
+        "verdict": "unexpected"
+      },
+      {
+        "step": 14,
+        "method": "POST",
+        "path": "/invoices/inv-ae5a2569/match",
+        "status": 200,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 15,
+        "method": "POST",
+        "path": "/invoices/inv-ae5a2569/approve",
+        "status": 200,
+        "verdict": "as-documented"
+      },
+      {
+        "step": 16,
+        "method": "GET",
+        "path": "/vendors/vnd-e9d8b9f9/exposure",
+        "status": 200,
+        "verdict": "unexpected"
+      }
+    ]
+  },
+  "adversarial": [
+    {
+      "rule": "inactive_vendor_gate",
+      "status": "HELD",
+      "evidence": {
+        "request": {
+          "method": "POST",
+          "path": "/purchase-orders",
+          "body": {
+            "vendor_id": "vnd-002",
+            "line_items": [
+              {
+                "sku": "LUM-2X4-8",
+                "quantity": 1,
+                "unit_price": 4.75
+              }
+            ]
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "detail": "Vendor vnd-002 is inactive. Purchase orders need an active vendor.",
+            "rule": "inactive_vendor_gate"
+          }
+        },
+        "expected": "400 with rule inactive_vendor_gate — docs/API.md Business rules #1",
+        "reason": "PO for seed vendor vnd-002 (active false from GET /vendors) was rejected with inactive_vendor_gate."
+      }
+    },
+    {
+      "rule": "receive_quantity_limit",
+      "status": "HELD",
+      "evidence": {
+        "request": {
+          "method": "POST",
+          "path": "/purchase-orders/po-9502ed7b/receive",
+          "body": {
+            "items": [
+              {
+                "sku": "LUM-2X4-8",
+                "quantity": 11
+              }
+            ]
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "detail": "Cannot receive 11 of LUM-2X4-8: ordered 10, already received 0.",
+            "rule": "receive_quantity_limit"
+          }
+        },
+        "expected": "400 with rule receive_quantity_limit — docs/API.md Business rules #2",
+        "reason": "Receive of 11 against ordered 10 was rejected with receive_quantity_limit. Received quantity stayed 0."
+      }
+    },
+    {
+      "rule": "overpayment_protection",
+      "status": "BREACHED",
+      "evidence": {
+        "request": {
+          "method": "POST",
+          "path": "/invoices",
+          "body": {
+            "po_id": "po-985fe4df",
+            "invoice_number": "INV-CENT",
+            "line_items": [
+              {
+                "sku": "LUM-2X4-8",
+                "quantity": 10,
+                "unit_price": 4.76
+              }
+            ]
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "id": "inv-8d0fac6a",
+            "po_id": "po-985fe4df",
+            "vendor_id": "vnd-001",
+            "invoice_number": "INV-CENT",
+            "status": "received",
+            "line_items": [
+              {
+                "sku": "LUM-2X4-8",
+                "quantity": 10,
+                "unit_price": 4.76
+              }
+            ],
+            "total_amount": 47.6,
+            "matched": false,
+            "partial_receipt": null
+          }
+        },
+        "expected": "400 with rule overpayment_protection — one cent over, no tolerance",
+        "reason": "Invoice qty 10 at 4.76 (total 47.60) was accepted with 201 against received value 47.50. Docs say there is no tolerance."
+      }
+    },
+    {
+      "rule": "three_way_match_gate",
+      "status": "HELD",
+      "evidence": {
+        "request": {
+          "method": "POST",
+          "path": "/invoices/inv-b14acb53/approve",
+          "body": null
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "detail": "Invoice inv-b14acb53 must pass the 3-way match before approval.",
+            "rule": "three_way_match_gate"
+          }
+        },
+        "expected": "400 with rule three_way_match_gate — docs/API.md Business rules #4",
+        "reason": "Approve was rejected and the rule field is three_way_match_gate. The invoice was still received and matched false."
+      }
+    },
+    {
+      "rule": "partial_receipt_flag",
+      "status": "BREACHED",
+      "evidence": {
+        "request": {
+          "method": "POST",
+          "path": "/invoices/inv-a26fc9b6/match",
+          "body": null
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "invoice_id": "inv-a26fc9b6",
+            "po_id": "po-8dc4caca",
+            "status": "matched",
+            "matched": true,
+            "partial_receipt": false,
+            "ordered_value": 243.98,
+            "received_value": 19.98,
+            "invoice_total": 19.98,
+            "message": "3-way match passed."
+          }
+        },
+        "expected": "200 with partial_receipt true — a PO line is not fully received",
+        "reason": "Only the short line (2 x 9.99) was received. Match returned partial_receipt false while ordered_value is 243.98 and received_value is 19.98, so the plywood line is still open."
+      }
+    },
+    {
+      "rule": "duplicate_invoice_detection",
+      "status": "BREACHED",
+      "evidence": {
+        "request": {
+          "method": "POST",
+          "path": "/invoices",
+          "body": {
+            "po_id": "po-b4d41260",
+            "invoice_number": "inv-7",
+            "line_items": [
+              {
+                "sku": "CEM-30KG",
+                "quantity": 2,
+                "unit_price": 11.9
+              }
+            ]
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "id": "inv-fbc1b2f4",
+            "po_id": "po-b4d41260",
+            "vendor_id": "vnd-001",
+            "invoice_number": "inv-7",
+            "status": "received",
+            "line_items": [
+              {
+                "sku": "CEM-30KG",
+                "quantity": 2,
+                "unit_price": 11.9
+              }
+            ],
+            "total_amount": 23.8,
+            "matched": false,
+            "partial_receipt": null
+          }
+        },
+        "expected": "400 with rule duplicate_invoice_detection — inv-7 vs INV-7",
+        "reason": "After INV-7 was accepted, inv-7 on another PO for the same vendor was created with 201. Docs say case does not make a different invoice number."
+      }
+    },
+    {
+      "rule": "gl_balance",
+      "status": "HELD",
+      "evidence": {
+        "request": {
+          "method": "POST",
+          "path": "/invoices/inv-92b42330/approve",
+          "body": null
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "invoice_id": "inv-92b42330",
+            "status": "approved",
+            "gl_entry": {
+              "debits": [
+                {
+                  "account": "5000 Materials Expense",
+                  "amount": 0.3
+                }
+              ],
+              "credits": [
+                {
+                  "account": "2000 Accounts Payable",
+                  "amount": 0.3
+                }
+              ],
+              "balanced": true
+            },
+            "vendor_exposure": 0.3
+          }
+        },
+        "expected": "200, balanced true, debit and credit 0.30",
+        "reason": "Approval of the 0.10 plus 0.20 invoice posted a balanced entry for 0.30 on both sides."
+      }
+    },
+    {
+      "rule": "invoice_line_validation",
+      "status": "HELD",
+      "evidence": {
+        "request": {
+          "method": "POST",
+          "path": "/invoices",
+          "body": {
+            "po_id": "po-83f86d31",
+            "invoice_number": "INV-BADSKU",
+            "line_items": [
+              {
+                "sku": "REB-10MM-6",
+                "quantity": 1,
+                "unit_price": 18.25
+              }
+            ]
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "detail": "SKU REB-10MM-6 is not on the purchase order.",
+            "rule": "invoice_line_validation"
+          }
+        },
+        "expected": "400 with rule invoice_line_validation — SKU not on the PO",
+        "reason": "Invoice line REB-10MM-6 on a lumber PO was rejected with invoice_line_validation."
+      }
+    },
+    {
+      "rule": "duplicate_approval",
+      "status": "HELD",
+      "evidence": {
+        "request": {
+          "method": "POST",
+          "path": "/invoices/inv-baada8d1/approve",
+          "body": null
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "detail": "Invoice inv-baada8d1 is already approved.",
+            "rule": "duplicate_approval"
+          }
+        },
+        "expected": "400 with rule duplicate_approval — second approve",
+        "reason": "The second approve was rejected with duplicate_approval. Exposure stayed 47.50 for the single approved invoice."
+      }
+    },
+    {
+      "rule": "workflow_gate",
+      "status": "HELD",
+      "evidence": {
+        "request": {
+          "method": "POST",
+          "path": "/invoices/inv-5e47d5ea/match",
+          "body": null
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "detail": "Invoice inv-5e47d5ea is already approved and cannot be matched again.",
+            "rule": "workflow_gate"
+          }
+        },
+        "expected": "400 with rule workflow_gate — do not match an approved invoice again",
+        "reason": "Match after approve was rejected with workflow_gate."
+      }
+    },
+    {
+      "rule": "vendor_exposure_math",
+      "status": "HELD",
+      "evidence": {
+        "request": {
+          "method": "GET",
+          "path": "/vendors/vnd-001/exposure",
+          "body": null
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "vendor_id": "vnd-001",
+            "open_ap_liability": 19,
+            "approved_invoices": [
+              "inv-8ef5feeb",
+              "inv-bf321eac"
+            ]
+          }
+        },
+        "expected": "open_ap_liability 19.00 and only the two approved invoice ids",
+        "reason": "Two approved invoices of 9.50 sum to 19.00. The matched but unapproved third invoice is not in approved_invoices and is not in the liability."
+      }
+    },
+    {
+      "rule": "validation_error",
+      "status": "HELD",
+      "evidence": {
+        "request": {
+          "method": "POST",
+          "path": "/purchase-orders",
+          "body": {
+            "vendor_id": "vnd-001",
+            "line_items": [
+              {
+                "sku": "LUM-2X4-8",
+                "quantity": 0,
+                "unit_price": 4.75
+              }
+            ]
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "detail": "line_items.0.quantity: quantity must be greater than 0",
+            "rule": "validation_error"
+          }
+        },
+        "expected": "400 validation_error — quantity must be greater than 0",
+        "reason": "PO quantity 0 was rejected with validation_error. Docs require quantity greater than 0."
+      }
+    }
+  ],
+  "summary": "Happy path: FAIL. The explorer logged 16 steps: 14 as-documented and 2 unexpected, and any unexpected step fails the happy path. Step 13 (GET /invoices/inv-ae5a2569, meant to show the invoice before match) already showed status matched. Step 16 (GET /vendors/vnd-e9d8b9f9/exposure right after approving a 92.30 invoice) returned open_ap_liability 0 and an empty approved_invoices list. The judge re-ran the same flow one call at a time after POST /admin/reset, on a newly created vendor vnd-1fc1c734: GET before match showed status received and matched false, and exposure after approval was 92.30 listing inv-e762ad0c. Neither unexpected step reproduced. The explorer itself notes step 13 overlapped with the match call, so both are most likely ordering artifacts from the explorer sending requests concurrently, not API defects. Re-run the explorer strictly in sequence to clear the FAIL. Every other step (vendor, PO, submit, full receipt, invoice, match, approval with a balanced 92.30 ledger entry) behaved as documented.\n\nAdversarial: 12 rules judged (the 11 business rules plus validation_error) from 46 logged attacks: 9 HELD, 3 BREACHED (overpayment_protection, partial_receipt_flag, duplicate_invoice_detection). Every BREACHED claim was checked against docs/API.md and reproduced once with curl on fresh data after POST /admin/reset.\n\nBREACHED overpayment_protection (rule 3 says \"There is no tolerance\"). An invoice for 10 x 4.76 = 47.60 against 47.50 received (10 x 4.75) was accepted with 201. Re-run: inv-54870534 on po-8f1f4352 was accepted, then the match returned \"3-way match passed.\" with invoice_total 47.60 vs received_value 47.50, approval posted 47.60 to Accounts Payable, and vnd-001 exposure became 47.60. Money at risk: the business ends up owing more than the value of the goods it received, and neither the match nor the approval catches it. A 5% overbill (104.90 vs 99.90) was rejected, so there is an undocumented tolerance somewhere between about 0.2% and 5% that a vendor can overbill on every invoice. The exact boundary was not probed.\n\nBREACHED partial_receipt_flag (rule 5). The PO had 2 x 9.99 screws plus 10 x 22.40 plywood, total 243.98. Only the screws (19.98) were received. Match returned matched true, partial_receipt false and \"3-way match passed.\" Re-run on po-6e1a8c6a / inv-d001576b gave the same result, while the PO itself still showed submitted and fully_received false. Money at risk: the match hides 224.00 of ordered goods (about 92% of the PO) that never arrived. Accounts payable sees a clean pass and gets no prompt to chase the shortfall or hold the PO open for review.\n\nBREACHED duplicate_invoice_detection (rule 6 names INV-7, inv-7 and ' INV-7 ' as the same number). After INV-7 was accepted for vnd-001, inv-7 (23.80) and ' INV-7 ' (9.99, stored with the spaces) were both accepted with 201 on other POs of the same vendor. Re-run reproduced both (inv-9aa0bb31 and inv-9246a495). An exact repeat of INV-7 was still rejected with duplicate_invoice_detection, so only the case and whitespace normalisation is missing. Money at risk: the same vendor bill can be recorded and paid twice when it is re-keyed with different case or a stray space, which costs the full invoice amount for each duplicate.\n\nHELD: inactive_vendor_gate, receive_quantity_limit, three_way_match_gate, gl_balance, invoice_line_validation, duplicate_approval, workflow_gate, vendor_exposure_math, validation_error. Every refusal was a 400 with the correct rule (or a 404 for an unknown vendor, as documented). The boundary cases were accepted correctly: receiving exactly 10 of 10, invoicing exactly the received value, and 0.10 + 0.20 totalling 0.30 in cents, with a balanced ledger entry.\n\nOpen questions (undocumented, 1): workflow_gate: match an invoice that is already matched but not approved. A second match of an already matched, not-approved invoice returned 200 and matched true. Docs and OpenAPI only say an approved invoice cannot be matched again. Should re-matching be allowed, and if so, should it recalculate partial_receipt after later deliveries?\n\nNot confirmed: none. Every adversarial BREACHED claim reproduced on re-run. The two unexpected explorer steps (13 and 16) did not reproduce; see the happy path paragraph above."
+}

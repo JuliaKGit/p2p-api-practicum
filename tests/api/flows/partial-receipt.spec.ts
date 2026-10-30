@@ -98,6 +98,7 @@ test.describe('partial receipt P2P flow', () => {
   });
 
   test('3-way match flags partial receipt', { tag: '@e2e' }, async ({ request }) => {
+    test.fail(true, 'BUG-2: match sets partial_receipt false while a PO line is still open');
     const response = await request.post(`/invoices/${invoiceId}/match`);
     expect(response.status()).toBe(200);
     const body: unknown = await response.json();
